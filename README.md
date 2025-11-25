@@ -73,9 +73,22 @@ Content-Type: application/json
 Response: JSON with top reranked Jmix doc chunks (returned as raw String to the LLM).
 
 ## Development
-1. Run ![Jmix AI Backend](https://github.com/jmix-framework/jmix-ai-backend)
+1. Run [Jmix AI Backend](https://github.com/jmix-framework/jmix-ai-backend)
 2. Run Application (`./gradlew bootRun`)
-3. Add MCP to project
+3. Add MCP to project. 
+
+E.g. 
+
+- For Claude Code: `claude mcp add --transport sse jmixdocs_servername_or_other_name http://localhost:8080/sse`
+- Config: 
+```
+{
+    "jmixdocs_servername_or_other_name": {
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
+    }
+}
+```
 
 ## Notes
 
