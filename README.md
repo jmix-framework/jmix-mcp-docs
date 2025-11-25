@@ -72,6 +72,11 @@ Content-Type: application/json
 
 Response: JSON with top reranked Jmix doc chunks (returned as raw String to the LLM).
 
+## Development
+1. Run ![Jmix AI Backend](https://github.com/jmix-framework/jmix-ai-backend)
+2. Run Application (`./gradlew bootRun`)
+3. Add MCP to project
+
 ## Notes
 
 * All retrieval, embedding and reranking logic lives in the AI backend.
