@@ -22,7 +22,7 @@ sequenceDiagram
     A->>MCP: callTool("search-jmix-docs", queryText)
     MCP->>Telemetry: executeWithTelemetry(context)
     Telemetry->>SearchSvc: searchForJmixDocs(queryText)
-    SearchSvc->>Backend: POST /api/search {query, type:"docs"}
+    SearchSvc->>Backend: POST /api/search {query}
     Backend->>VS: semantic search + rerank
     VS-->>Backend: top-N doc chunks (JSON)
     Backend-->>SearchSvc: JSON String
@@ -65,8 +65,7 @@ POST /api/search
 Content-Type: application/json
 
 {
-  "query": "<text>",
-  "type": "docs"
+  "query": "<text>"
 }
 ```
 
