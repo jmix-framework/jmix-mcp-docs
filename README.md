@@ -1,7 +1,7 @@
 # Jmix Docs MCP Tool
 
 Minimal MCP server exposing a single tool that searches Jmix content (documentation, training examples, UI samples) via an AI backend with vector search and reranking.
-The LLM calls this tool with a free-form text query (in English or Russian), and the backend finds the most relevant pages from the indexed Jmix knowledge base.
+The LLM calls this tool with a free-form text query, and the backend finds the most relevant pages from the indexed Jmix knowledge base.
 Inside the backend, embeddings and a reranker first collect candidate documents, then filter and sort them so that only truly useful fragments remain in the final result.
 The MCP server simply passes this list of documents back to the LLM as JSON, without adding extra logic or modifying the content.
 

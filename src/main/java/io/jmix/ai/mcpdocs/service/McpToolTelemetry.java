@@ -6,8 +6,6 @@ import io.jmix.ai.mcpdocs.util.TimedExecutor;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.mcp.McpToolUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -56,9 +54,6 @@ public class McpToolTelemetry {
     private void logToolStart(Logger logger, ToolExecutionContext context) {
         String formattedParams = formatParams(context.params);
         logger.info(">>> [START] Tool: {}, Params: {}", context.toolName, formattedParams);
-
-        sendNotification(context, McpSchema.LoggingLevel.INFO,
-                String.format("[START] Processing with params: %s", formattedParams));
     }
 
     private void logToolSuccess(Logger logger, ToolExecutionContext context, long totalMs) {
@@ -66,9 +61,6 @@ public class McpToolTelemetry {
 
         logger.info(">>> [SUCCESS] Tool: {}, Params: {}, Duration: {} ms",
                 context.toolName, formattedParams, totalMs);
-
-        sendNotification(context, McpSchema.LoggingLevel.INFO,
-                String.format("[SUCCESS] Completed in %d ms", totalMs));
     }
 
     private void logToolError(Logger logger, ToolExecutionContext context, long elapsedMs, String errorMessage) {
@@ -76,21 +68,6 @@ public class McpToolTelemetry {
 
         logger.error(">>> [ERROR] Tool: {}, Params: {}, Failed after {} ms: {}",
                 context.toolName, formattedParams, elapsedMs, errorMessage);
-
-        sendNotification(context, McpSchema.LoggingLevel.ERROR,
-                String.format("[ERROR] Failed after %d ms: %s", elapsedMs, errorMessage));
-    }
-
-    private void sendNotification(ToolExecutionContext context, McpSchema.LoggingLevel level, String message) {
-        if (context.toolContext == null) {
-            return;
-        }
-
-        McpToolUtils.getMcpExchange(context.toolContext).ifPresent(exchange ->
-                exchange.loggingNotification(new McpSchema.LoggingMessageNotification(
-                        level,
-                        context.toolName.toLowerCase().replace('_', '-'),
-                        message)));
     }
 
     private String formatParams(Map<?, ?> params) {
@@ -148,13 +125,11 @@ public class McpToolTelemetry {
     public static class ToolExecutionContext {
         private final Class<?> toolClass;
         private final String toolName;
-        private final ToolContext toolContext;
         private final Map<?, ?> params;
 
         private ToolExecutionContext(Builder builder) {
             this.toolClass = builder.toolClass;
             this.toolName = builder.toolName;
-            this.toolContext = builder.toolContext;
             this.params = builder.params;
         }
 
@@ -165,7 +140,6 @@ public class McpToolTelemetry {
         public static class Builder {
             private Class<?> toolClass;
             private String toolName;
-            private ToolContext toolContext;
             private Map<?, ?> params;
 
             public Builder toolClass(Class<?> toolClass) {
@@ -175,11 +149,6 @@ public class McpToolTelemetry {
 
             public Builder toolName(String toolName) {
                 this.toolName = toolName;
-                return this;
-            }
-
-            public Builder toolContext(ToolContext toolContext) {
-                this.toolContext = toolContext;
                 return this;
             }
 
