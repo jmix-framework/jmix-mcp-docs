@@ -37,7 +37,7 @@ public class JmixDocsTool {
 
         return mcpToolTelemetry.executeWithTelemetry(
                 context,
-                () -> jmixContentSearchService.searchForJmixDocs(queryText)
+                () -> jmixContentSearchService.search(queryText)
         );
     }
 }

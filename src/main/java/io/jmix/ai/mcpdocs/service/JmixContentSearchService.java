@@ -16,11 +16,9 @@ public class JmixContentSearchService {
         this.restClient = restClient;
     }
 
-    public String search(String query, String type) {
+    public String search(String query) {
         Map<String, String> requestBody =
-                Map.of(
-                        "query", query,
-                        "type", type);
+                Map.of("query", query);
 
         return restClient.post()
                 .uri("/api/search")
@@ -28,9 +26,5 @@ public class JmixContentSearchService {
                 .body(requestBody)
                 .retrieve()
                 .body(String.class);
-    }
-
-    public String searchForJmixDocs(String query) {
-        return search(query, "docs");
     }
 }
