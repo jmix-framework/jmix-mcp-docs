@@ -2,13 +2,19 @@ package io.jmix.ai.mcpdocs.api;
 
 import io.jmix.ai.mcpdocs.service.JmixContentSearchService;
 import io.jmix.ai.mcpdocs.service.McpToolTelemetry;
+import io.jmix.ai.mcpdocs.validation.McpError;
+import io.jmix.ai.mcpdocs.validation.McpRequestValidator;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
 
-import javax.validation.constraints.NotNull;
+import java.util.Optional;
 
+/**
+ * MCP tool for searching Jmix documentation.
+ * Uses semantic search with reranking to find relevant documentation.
+ */
 @Component
 public class JmixDocsTool {
     public static final String JMIX_DOCS_TOOL = "search-jmix-docs";
@@ -16,23 +22,33 @@ public class JmixDocsTool {
 
     private final JmixContentSearchService jmixContentSearchService;
     private final McpToolTelemetry mcpToolTelemetry;
+    private final McpRequestValidator requestValidator;
 
     public JmixDocsTool(JmixContentSearchService jmixContentSearchService,
-                        McpToolTelemetry mcpToolTelemetry) {
+                        McpToolTelemetry mcpToolTelemetry,
+                        McpRequestValidator requestValidator) {
         this.jmixContentSearchService = jmixContentSearchService;
         this.mcpToolTelemetry = mcpToolTelemetry;
+        this.requestValidator = requestValidator;
     }
 
+    @SuppressWarnings("UnusedReturnValue")
     @McpTool(name = JMIX_DOCS_TOOL,
             description = JMIX_DOCS_TOOL_DESCRIPTION)
     public McpSchema.CallToolResult search(
             @McpToolParam(description = "Search query for Jmix documentation")
-            @NotNull String queryText
+            String queryText
     ) {
+        // Validate request (rate limits + input validation + token budget)
+        Optional<McpError> validationError = requestValidator.validateAll(queryText);
+        if (validationError.isPresent()) {
+            return requestValidator.toErrorResponse(validationError.get());
+        }
+
+        // Execute search with telemetry
         McpToolTelemetry.ToolExecutionContext context = McpToolTelemetry.ToolExecutionContext.builder()
                 .toolClass(JmixDocsTool.class)
                 .toolName(JMIX_DOCS_TOOL)
-                .paramToLog("query", queryText)
                 .build();
 
         return mcpToolTelemetry.executeWithTelemetry(
