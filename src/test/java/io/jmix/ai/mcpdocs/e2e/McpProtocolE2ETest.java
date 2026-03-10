@@ -1,6 +1,7 @@
 package io.jmix.ai.mcpdocs.e2e;
 
 import io.jmix.ai.mcpdocs.util.mcp.McpResponse;
+import io.jmix.ai.mcpdocs.util.mcp.McpSseTestClient;
 import io.jmix.ai.mcpdocs.util.mcp.McpTestClient;
 import io.jmix.ai.mcpdocs.util.data.MockMcpResponseProvider;
 import io.jmix.ai.mcpdocs.util.mcp.SequentialMcpCaller;
@@ -19,7 +20,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * E2E tests for MCP protocol implementation.
- * Tests the full flow: SSE connection -> initialize -> tools/list -> tools/call
+ * Tests the full flow: Streamable HTTP connection -> initialize -> tools/list -> tools/call
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
@@ -118,7 +119,7 @@ class McpProtocolE2ETest extends BaseE2ETest {
     }
 
     @Test
-    void testSseConnectionEstablishment() throws Exception {
+    void testConnectionEstablishment() throws Exception {
         McpTestClient client = newTestClient();
         // Connection should be established without errors
 
@@ -127,6 +128,26 @@ class McpProtocolE2ETest extends BaseE2ETest {
             // Verify connection by making a request
             McpResponse.ToolListResponse toolsList = client.listTools();
             assertThat(toolsList.hasResult()).isTrue();
+        }
+    }
+
+    @Test
+    void testSseBackwardCompatibility() throws Exception {
+        McpSseTestClient sseClient = newSseTestClient();
+
+        try (sseClient) {
+            sseClient.connect();
+
+            McpResponse.ToolListResponse toolsList = sseClient.listTools();
+            assertThat(toolsList.hasResult()).isTrue();
+            assertThat(toolsList.getTools()).isNotEmpty();
+            assertThat(toolsList.findTool("search-jmix-docs")).isNotNull();
+
+            McpResponse.ToolCallResponse result = sseClient.callTool("search-jmix-docs",
+                    Map.of("queryText", "Jmix DataGrid"));
+
+            assertThat(result.hasResult()).isTrue();
+            assertThat(result.getTextContent()).contains("DataGrid");
         }
     }
 

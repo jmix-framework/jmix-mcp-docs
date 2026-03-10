@@ -11,10 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
-/**
- * MCP tool for searching Jmix documentation.
- * Uses semantic search with reranking to find relevant documentation.
- */
 @Component
 public class JmixDocsTool {
     public static final String JMIX_DOCS_TOOL = "search-jmix-docs";

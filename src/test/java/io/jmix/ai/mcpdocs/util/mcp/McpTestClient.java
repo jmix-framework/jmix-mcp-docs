@@ -15,263 +15,190 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.UUID;
+import java.util.Map;
 
 /**
  * Simple MCP test client for integration testing.
- * Implements SSE connection and JSON-RPC protocol.
+ * Implements Streamable HTTP transport and JSON-RPC protocol.
  */
 public class McpTestClient implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(McpTestClient.class);
+    private static final String MCP_SESSION_ID_HEADER = "Mcp-Session-Id";
 
     private final String baseUrl;
+    private final String mcpEndpoint;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private String sessionId;
-    private final BlockingQueue<SseEvent> eventQueue;
-    private Thread sseThread;
-    private volatile boolean running;
 
     public McpTestClient(String baseUrl) {
+        this(baseUrl, "/mcp");
+    }
+
+    public McpTestClient(String baseUrl, String mcpEndpoint) {
         this.baseUrl = baseUrl;
+        this.mcpEndpoint = mcpEndpoint;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
-        this.eventQueue = new LinkedBlockingQueue<>();
     }
 
     public void connect() throws Exception {
-        logger.info("Connecting to MCP server: {}", baseUrl);
-        running = true;
-
-        // Start SSE listener in background thread
-        sseThread = new Thread(this::listenSse, "SSE-Listener");
-        sseThread.start();
-
-        // Give SSE time to establish connection
-        Thread.sleep(1000);
-
-        // Try to get sessionId from SSE events, or generate one
-        try {
-            sessionId = waitForSessionId();
-            logger.info("Got sessionId from SSE: {}", sessionId);
-        } catch (TimeoutException e) {
-            // If no sessionId received, generate one (some MCP servers auto-generate)
-            sessionId = UUID.randomUUID().toString();
-            logger.info("Generated sessionId: {}", sessionId);
-        }
-
-        // Initialize
+        logger.info("Connecting to MCP server: {}{}", baseUrl, mcpEndpoint);
         initialize();
-    }
-
-    private void listenSse() {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/sse"))
-                    .header("Accept", "text/event-stream")
-                    .timeout(Duration.ofSeconds(60))
-                    .GET()
-                    .build();
-
-            HttpResponse<java.io.InputStream> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofInputStream()
-            );
-
-            if (response.statusCode() != 200) {
-                throw new IOException("SSE connection failed with status: " + response.statusCode());
-            }
-
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-
-                List<String> buffer = new ArrayList<>();
-                String line;
-
-                while (running && (line = reader.readLine()) != null) {
-                    if (line.isEmpty()) {
-                        if (!buffer.isEmpty()) {
-                            SseEvent event = parseEvent(buffer);
-                            if (event != null) {
-                                eventQueue.offer(event);
-                                logger.debug("SSE event: {}", event.data);
-                            }
-                            buffer.clear();
-                        }
-                    } else {
-                        buffer.add(line);
-                    }
-                }
-            }
-        } catch (InterruptedException e) {
-            // Expected during shutdown - suppress
-            logger.debug("SSE listener interrupted during shutdown");
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            if (running) {
-                logger.error("SSE listener failed", e);
-            } else {
-                logger.debug("SSE listener stopped during shutdown");
-            }
-        }
-    }
-
-    private SseEvent parseEvent(List<String> lines) {
-        StringBuilder data = new StringBuilder();
-        String event = null;
-        String id = null;
-
-        for (String line : lines) {
-            if (line.startsWith("data:")) {
-                if (!data.isEmpty()) data.append("\n");
-                data.append(line.substring(5).trim());
-            } else if (line.startsWith("event:")) {
-                event = line.substring(6).trim();
-            } else if (line.startsWith("id:")) {
-                id = line.substring(3).trim();
-            }
-        }
-
-        if (!data.isEmpty()) {
-            return new SseEvent(data.toString(), event, id);
-        }
-        return null;
-    }
-
-    private String waitForSessionId() throws Exception {
-        long deadline = System.currentTimeMillis() + 3000; // Reduced timeout
-
-        while (System.currentTimeMillis() < deadline) {
-            SseEvent event = eventQueue.poll(500, TimeUnit.MILLISECONDS);
-            if (event == null) continue;
-
-            // Try plain text
-            if (event.data.contains("sessionId=")) {
-                return event.data.split("sessionId=", 2)[1].trim();
-            }
-
-            // Try JSON
-            try {
-                JsonNode json = objectMapper.readTree(event.data);
-                if (json.has("sessionId")) {
-                    return json.get("sessionId").asText();
-                }
-                if (json.has("result") && json.get("result").has("sessionId")) {
-                    return json.get("result").get("sessionId").asText();
-                }
-            } catch (Exception ignored) {
-            }
-        }
-
-        throw new TimeoutException("No sessionId received");
     }
 
     private void initialize() throws Exception {
         JsonNode initRequest = JsonRpcRequest.initialize("init").build();
-        post(initRequest);
-        JsonNode response = awaitResponse("init", 10);
+        JsonNode response = postAndGetResponse(initRequest);
         logger.info("Initialized: {}", response.has("result"));
 
-        // Send initialized notification
         JsonNode notification = JsonRpcRequest.initializedNotification().build();
-        post(notification);
+        postNotification(notification);
     }
 
     public McpResponse.ToolCallResponse callTool(String toolName, Map<String, Object> arguments) throws Exception {
         String id = "call-" + System.currentTimeMillis();
         JsonNode request = JsonRpcRequest.callTool(id, toolName, arguments).build();
-        post(request);
-        JsonNode response = awaitResponse(id, 30);
+        JsonNode response = postAndGetResponse(request);
         return new McpResponse.ToolCallResponse(response);
     }
 
     public McpResponse.ToolListResponse listTools() throws Exception {
         JsonNode request = JsonRpcRequest.listTools("list-tools").build();
-        post(request);
-        JsonNode response = awaitResponse("list-tools", 10);
+        JsonNode response = postAndGetResponse(request);
         return new McpResponse.ToolListResponse(response);
     }
 
-    private void post(JsonNode body) throws Exception {
-        String url = baseUrl + "/message?sessionId=" + sessionId;
+    /**
+     * Posts a JSON-RPC request and returns the parsed response.
+     * Handles both direct JSON responses and SSE-streamed responses.
+     */
+    private JsonNode postAndGetResponse(JsonNode body) throws Exception {
+        String url = baseUrl + mcpEndpoint;
         String json = objectMapper.writeValueAsString(body);
 
         logger.debug("POST {}: {}", url, json.substring(0, Math.min(200, json.length())));
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(json))
-                .timeout(Duration.ofSeconds(30))
-                .build();
+                .timeout(Duration.ofSeconds(30));
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (sessionId != null) {
+            requestBuilder.header(MCP_SESSION_ID_HEADER, sessionId);
+        }
+
+        HttpResponse<java.io.InputStream> response = httpClient.send(
+                requestBuilder.build(),
+                HttpResponse.BodyHandlers.ofInputStream()
+        );
 
         if (response.statusCode() != 200) {
-            throw new IOException("POST failed: " + response.statusCode() + " " + response.body());
+            String responseBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+            throw new IOException("POST failed: " + response.statusCode() + " " + responseBody);
+        }
+
+        response.headers().firstValue(MCP_SESSION_ID_HEADER).ifPresent(id -> {
+            this.sessionId = id;
+            logger.debug("Session ID: {}", id);
+        });
+
+        String contentType = response.headers().firstValue("Content-Type").orElse("");
+
+        if (contentType.contains("text/event-stream")) {
+            return parseStreamResponse(response);
+        } else {
+            String responseBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+            logger.debug("Response: {}", responseBody.substring(0, Math.min(200, responseBody.length())));
+            return objectMapper.readTree(responseBody);
         }
     }
 
-    private JsonNode awaitResponse(String id, int timeoutSeconds) throws Exception {
-        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+    /**
+     * Parses an SSE-streamed response, returning the first JSON-RPC message found.
+     */
+    private JsonNode parseStreamResponse(HttpResponse<java.io.InputStream> response) throws Exception {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
 
-        while (System.currentTimeMillis() < deadline) {
-            SseEvent event = eventQueue.poll(1, TimeUnit.SECONDS);
-            if (event == null) continue;
+            StringBuilder dataBuffer = new StringBuilder();
+            String line;
 
-            try {
-                JsonNode json = objectMapper.readTree(event.data);
-                if (json.has("id") && json.get("id").asText().equals(id)) {
-                    if (json.has("error")) {
-                        throw new RuntimeException("RPC error: " + json.get("error"));
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith("data:")) {
+                    String data = line.substring(5).trim();
+                    if (!data.isEmpty()) {
+                        dataBuffer.append(data);
                     }
-                    logger.debug("Got response for id={}", id);
-                    return json;
+                } else if (line.isEmpty() && !dataBuffer.isEmpty()) {
+                    // End of SSE event — try to parse as JSON-RPC response
+                    try {
+                        JsonNode json = objectMapper.readTree(dataBuffer.toString());
+                        if (json.has("id") || json.has("result") || json.has("error")) {
+                            logger.debug("SSE response: {}", dataBuffer.toString()
+                                    .substring(0, Math.min(200, dataBuffer.length())));
+                            return json;
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Non-JSON SSE event: {}", dataBuffer.toString()
+                                .substring(0, Math.min(50, dataBuffer.length())));
+                    }
+                    dataBuffer.setLength(0);
                 }
-            } catch (Exception e) {
-                logger.debug("Non-JSON event: {}", event.data.substring(0, Math.min(50, event.data.length())));
             }
+
+            if (!dataBuffer.isEmpty()) {
+                return objectMapper.readTree(dataBuffer.toString());
+            }
+
+            throw new IOException("No JSON-RPC response found in SSE stream");
+        }
+    }
+
+    private void postNotification(JsonNode body) throws Exception {
+        String url = baseUrl + mcpEndpoint;
+        String json = objectMapper.writeValueAsString(body);
+
+        logger.debug("POST notification {}: {}", url, json.substring(0, Math.min(200, json.length())));
+
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .timeout(Duration.ofSeconds(30));
+
+        if (sessionId != null) {
+            requestBuilder.header(MCP_SESSION_ID_HEADER, sessionId);
         }
 
-        throw new TimeoutException("No response for id=" + id);
+        HttpResponse<String> response = httpClient.send(
+                requestBuilder.build(),
+                HttpResponse.BodyHandlers.ofString()
+        );
+
+        // Notifications may return 200 or 202 (accepted)
+        if (response.statusCode() != 200 && response.statusCode() != 202
+                && response.statusCode() != 204) {
+            throw new IOException("Notification failed: " + response.statusCode() + " " + response.body());
+        }
+
+        response.headers().firstValue(MCP_SESSION_ID_HEADER).ifPresent(id -> {
+            this.sessionId = id;
+        });
     }
 
     public String getClientIp() {
-        // In test environment, client IP is typically localhost or "unknown"
-        // This can be used to check rate limiting for specific IP
         return "127.0.0.1";
     }
 
     @Override
     public void close() {
         logger.debug("Closing MCP test client");
-        running = false;
-
-        if (sseThread != null) {
-            try {
-                // Wait briefly for SSE thread to notice running=false
-                sseThread.join(100);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-
-            // Interrupt immediately if still running
-            if (sseThread.isAlive()) {
-                sseThread.interrupt();
-                try {
-                    sseThread.join(500);
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
-    }
-
-    public record SseEvent(String data, String event, String id) {
     }
 }

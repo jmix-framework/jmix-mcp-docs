@@ -1,10 +1,5 @@
 package io.jmix.ai.mcpdocs.validation;
 
-/**
- * Represents a validation or operational error in MCP request processing.
- * Used to collect errors instead of throwing exceptions, allowing for
- * graceful error handling and MCP-compliant error responses.
- */
 public class McpError {
 
     private final McpErrorType type;

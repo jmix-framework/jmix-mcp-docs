@@ -71,23 +71,55 @@ Content-Type: application/json
 
 Response: JSON with top reranked Jmix doc chunks (returned as raw String to the LLM).
 
+## Transport
+
+The server supports two MCP transports simultaneously:
+
+| Transport | Endpoint | Status |
+|-----------|----------|--------|
+| **Streamable HTTP** | `POST /mcp` | Primary (recommended) |
+| **SSE** | `GET /sse` + `POST /message` | Backward compatibility |
+
+Streamable HTTP is the default per MCP spec 2025-03-26. SSE is kept for legacy clients and can be disabled via `mcp.server.sse-compat.enabled=false`.
+
 ## Development
 1. Run [Jmix AI Backend](https://github.com/jmix-framework/jmix-ai-backend)
 2. Run Application (`./gradlew bootRun`)
-3. Add MCP to project. 
+3. Add MCP to project.
 
-E.g. 
+**Streamable HTTP (recommended):**
 
-- For Claude Code: `claude mcp add --transport sse jmixdocs_servername_or_other_name http://localhost:8080/sse`
-- Config: 
-```
+- For Claude Code: `claude mcp add --transport http jmixdocs http://localhost:8080/mcp`
+- Config:
+```json
 {
-    "jmixdocs_servername_or_other_name": {
+    "jmixdocs": {
+      "type": "streamable-http",
+      "url": "http://localhost:8080/mcp"
+    }
+}
+```
+
+**SSE (legacy):**
+
+- For Claude Code: `claude mcp add --transport sse jmixdocs http://localhost:8080/sse`
+- Config:
+```json
+{
+    "jmixdocs": {
       "type": "sse",
       "url": "http://localhost:8080/sse"
     }
 }
 ```
+
+## Rate Limiting & Validation
+
+Multi-layer protection via `McpRequestValidator`:
+- **Per-IP rate limiting** — 300 req/hour (Bucket4j)
+- **Global rate limiting** — 800 req/min (DDoS protection)
+- **Token budgets** — per-IP and global limits across minute/hour/day windows
+- **Input validation** — max query length 10k chars, max estimated tokens 2k
 
 ## Notes
 

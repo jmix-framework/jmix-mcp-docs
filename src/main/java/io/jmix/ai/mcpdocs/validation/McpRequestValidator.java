@@ -72,10 +72,10 @@ public class McpRequestValidator {
     /**
      * Maps McpError to MCP-compliant error response.
      * All errors are returned with isError=true (HTTP 200).
-     * Uses short messages to avoid SSE truncation.
+     * Uses short messages to avoid truncation.
      */
     public McpSchema.CallToolResult toErrorResponse(McpError error) {
-        // Use short messages to prevent SSE buffer issues
+        // Use short messages to prevent buffer issues
         String errorMessage = switch (error.getType()) {
             case VALIDATION -> error.getMessage();
             case TOKEN_BUDGET -> error.getMessage();
