@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -22,7 +23,7 @@ public abstract class BaseE2ETest {
 
     @BeforeEach
     void setUpBaseMocks() {
-        when(searchService.search(anyString()))
+        when(searchService.search(anyString(), any()))
                 .thenReturn(MockMcpResponseProvider.JMIX_DOCS_SEARCH_RESPONSE);
     }
 

@@ -8,6 +8,7 @@ import java.util.List;
 
 /**
  * Mock search result builder with Jackson serialization.
+ * Mirrors the backend /api/v2/search response item shape: id, title, source, content.
  */
 public class MockSearchResult {
 
@@ -19,8 +20,8 @@ public class MockSearchResult {
         return new MockSearchResult();
     }
 
-    public MockSearchResult addItem(String title, String content, String url, double score) {
-        items.add(new SearchItem(title, content, url, score));
+    public MockSearchResult addItem(String title, String source, String content) {
+        items.add(new SearchItem("doc-" + (items.size() + 1), title, source, content));
         return this;
     }
 
@@ -32,6 +33,6 @@ public class MockSearchResult {
         }
     }
 
-    public record SearchItem(String title, String content, String url, double score) {
+    public record SearchItem(String id, String title, String source, String content) {
     }
 }

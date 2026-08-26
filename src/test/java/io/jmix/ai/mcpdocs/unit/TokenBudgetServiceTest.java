@@ -15,6 +15,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import io.modelcontextprotocol.spec.McpSchema;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -38,7 +39,7 @@ class TokenBudgetServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(searchService.search(anyString())).thenReturn(MockMcpResponseProvider.JMIX_DOCS_SEARCH_RESPONSE);
+        when(searchService.search(anyString(), any())).thenReturn(MockMcpResponseProvider.JMIX_DOCS_SEARCH_RESPONSE);
     }
 
     @Test
@@ -112,7 +113,7 @@ class TokenBudgetServiceTest {
         TokenBudgetService.TokenQuota beforeQuota = tokenBudgetService.getGlobalRemainingTokens();
 
         // Empty query estimates to 0 tokens (ceil(0/4) = 0)
-        jmixDocsTool.search("");
+        jmixDocsTool.search("", null, null, null);
 
         TokenBudgetService.TokenQuota afterQuota = tokenBudgetService.getGlobalRemainingTokens();
 
@@ -126,7 +127,7 @@ class TokenBudgetServiceTest {
         TokenBudgetService.TokenQuota beforeQuota = tokenBudgetService.getGlobalRemainingTokens();
 
         // Small query (~1 token)
-        jmixDocsTool.search("a");
+        jmixDocsTool.search("a", null, null, null);
 
         TokenBudgetService.TokenQuota afterQuota = tokenBudgetService.getGlobalRemainingTokens();
 
@@ -139,7 +140,7 @@ class TokenBudgetServiceTest {
     void testDirectToolCallWithExcessiveLengthReturnsError() {
         String longQuery = "a".repeat(2001);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search(longQuery);
+        McpSchema.CallToolResult result = jmixDocsTool.search(longQuery, null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent = (McpSchema.TextContent) result.content().get(0);
@@ -151,7 +152,7 @@ class TokenBudgetServiceTest {
     void testDirectToolCallWhenGlobalBudgetExhausted() {
         tokenBudgetService.tryConsumeGlobal(500);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search("test");
+        McpSchema.CallToolResult result = jmixDocsTool.search("test", null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent = (McpSchema.TextContent) result.content().get(0);
@@ -164,7 +165,7 @@ class TokenBudgetServiceTest {
         // Exhaust IP budget for "unknown" (default IP in non-HTTP context)
         tokenBudgetService.tryConsumeForIp("unknown", 500);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search("test");
+        McpSchema.CallToolResult result = jmixDocsTool.search("test", null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent = (McpSchema.TextContent) result.content().get(0);
@@ -179,7 +180,7 @@ class TokenBudgetServiceTest {
         TokenBudgetService.TokenQuota ipQuota = tokenBudgetService.getRemainingTokensForIp("192.168.1.1");
         assertThat(ipQuota.perMinute()).isEqualTo(500);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search("test");
+        McpSchema.CallToolResult result = jmixDocsTool.search("test", null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent = (McpSchema.TextContent) result.content().get(0);
@@ -194,7 +195,7 @@ class TokenBudgetServiceTest {
         TokenBudgetService.TokenQuota globalQuota = tokenBudgetService.getGlobalRemainingTokens();
         assertThat(globalQuota.perMinute()).isGreaterThan(0);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search("test");
+        McpSchema.CallToolResult result = jmixDocsTool.search("test", null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent2 = (McpSchema.TextContent) result.content().get(0);
@@ -208,14 +209,14 @@ class TokenBudgetServiceTest {
         // But might fail token budget if 2000 chars = 500 tokens > per-minute budget
         // So use smaller query that's within both limits
         String exactLimit = "a".repeat(400);  // 400 chars = 100 tokens, within budget
-        jmixDocsTool.search(exactLimit);  // Should not throw
+        jmixDocsTool.search(exactLimit, null, null, null);  // Should not throw
     }
 
     @Test
     void testOnePastLimitIsRejected() {
         String overLimit = "a".repeat(2001);
 
-        McpSchema.CallToolResult result = jmixDocsTool.search(overLimit);
+        McpSchema.CallToolResult result = jmixDocsTool.search(overLimit, null, null, null);
 
         assertThat(result.isError()).isTrue();
         McpSchema.TextContent textContent = (McpSchema.TextContent) result.content().get(0);
