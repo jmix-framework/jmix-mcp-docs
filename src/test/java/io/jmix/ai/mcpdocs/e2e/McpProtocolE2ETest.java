@@ -1,5 +1,7 @@
 package io.jmix.ai.mcpdocs.e2e;
 
+import io.jmix.ai.mcpdocs.service.BackendRequestException;
+import io.jmix.ai.mcpdocs.service.SearchOptions;
 import io.jmix.ai.mcpdocs.util.mcp.McpResponse;
 import io.jmix.ai.mcpdocs.util.mcp.McpSseTestClient;
 import io.jmix.ai.mcpdocs.util.mcp.McpTestClient;
@@ -15,7 +17,9 @@ import org.springframework.test.context.TestPropertySource;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -63,6 +67,72 @@ class McpProtocolE2ETest extends BaseE2ETest {
     }
 
     @Test
+    void testOptionalSearchParametersArePassedToBackend() throws Exception {
+        McpTestClient client = newTestClient();
+
+        try (client) {
+            client.connect();
+            McpResponse.ToolCallResponse result = client.callTool("search-jmix-docs",
+                    Map.of("queryText", "Jmix DataGrid",
+                            "jmixVersion", "v2",
+                            "maxResults", 5,
+                            "tokens", 1000));
+
+            assertThat(result.hasResult()).isTrue();
+            assertThat(result.getTextContent()).contains("DataGrid");
+            verify(searchService).search("Jmix DataGrid", new SearchOptions("v2", 5, 1000));
+        }
+    }
+
+    @Test
+    void testOmittedSearchParametersReachBackendAsNulls() throws Exception {
+        McpTestClient client = newTestClient();
+
+        try (client) {
+            client.connect();
+            McpResponse.ToolCallResponse result = client.callTool("search-jmix-docs",
+                    Map.of("queryText", "Jmix DataGrid"));
+
+            assertThat(result.hasResult()).isTrue();
+            verify(searchService).search("Jmix DataGrid", SearchOptions.NONE);
+        }
+    }
+
+    @Test
+    void testSearchOptionsAreForwardedToBackendUnvalidated() throws Exception {
+        // Option validation is owned by the backend contract; the MCP server forwards values as-is
+        McpTestClient client = newTestClient();
+
+        try (client) {
+            client.connect();
+            McpResponse.ToolCallResponse result = client.callTool("search-jmix-docs",
+                    Map.of("queryText", "Jmix DataGrid", "maxResults", 100));
+
+            assertThat(result.hasResult()).isTrue();
+            verify(searchService).search("Jmix DataGrid", new SearchOptions(null, 100, null));
+        }
+    }
+
+    @Test
+    void testBackendRejectionIsProxiedAsToolError() throws Exception {
+        when(searchService.search(anyString(), any()))
+                .thenThrow(new BackendRequestException(
+                        "Jmix docs backend rejected the request (HTTP 400 Bad Request): "
+                                + "Unknown Jmix version: 2.8", null));
+
+        McpTestClient client = newTestClient();
+
+        try (client) {
+            client.connect();
+            McpResponse.ToolCallResponse result = client.callTool("search-jmix-docs",
+                    Map.of("queryText", "Jmix DataGrid", "jmixVersion", "2.8"));
+
+            assertThat(result.hasToolError()).isTrue();
+            assertThat(result.getTextContent()).contains("Unknown Jmix version: 2.8");
+        }
+    }
+
+    @Test
     void testMultipleSequentialToolCalls() throws Exception {
         McpCallResult result = SequentialMcpCaller.of(newTestClient())
                 .iterate(3)
@@ -83,7 +153,7 @@ class McpProtocolE2ETest extends BaseE2ETest {
 
     @Test
     void testErrorHandlingWhenBackendServiceFails() throws Exception {
-        when(searchService.search(anyString()))
+        when(searchService.search(anyString(), any()))
                 .thenThrow(new RuntimeException("Backend service unavailable"));
 
         McpTestClient client = newTestClient();
@@ -218,7 +288,7 @@ class McpProtocolE2ETest extends BaseE2ETest {
     void testVeryLargeResponseHandling() throws Exception {
         // Mock returns very large response
         String largeResponse = "Large response data: " + "x".repeat(10000);
-        when(searchService.search(anyString())).thenReturn(largeResponse);
+        when(searchService.search(anyString(), any())).thenReturn(largeResponse);
 
         McpCallResult result = SequentialMcpCaller.of(newTestClient())
                 .iterate(1)

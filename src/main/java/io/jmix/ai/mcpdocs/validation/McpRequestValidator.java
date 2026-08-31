@@ -22,6 +22,9 @@ import java.util.Optional;
  * 2. Input validation (blank, length, token count)
  * 3. Token budget (global and per-IP)
  * Returns the first error encountered or empty if all validations pass.
+ * Search options (jmixVersion, maxResults, tokens) are intentionally NOT
+ * validated here: the backend owns that contract, and its rejection is
+ * proxied to the MCP client as a readable error.
  * Designed for low coupling - can be used standalone or integrated with telemetry.
  */
 @Service

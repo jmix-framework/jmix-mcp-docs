@@ -1,9 +1,10 @@
 # Jmix Docs MCP Tool
 
 Minimal MCP server exposing a single tool that searches Jmix content (documentation, training examples, UI samples) via an AI backend with vector search and reranking.
-The LLM calls this tool with a free-form text query, and the backend finds the most relevant pages from the indexed Jmix knowledge base.
+The LLM calls this tool with a free-form text query, and the backend finds the most relevant snippets from the indexed Jmix knowledge base.
 Inside the backend, embeddings and a reranker first collect candidate documents, then filter and sort them so that only truly useful fragments remain in the final result.
-The MCP server simply passes this list of documents back to the LLM as JSON, without adding extra logic or modifying the content.
+The calling LLM can optionally pick the Jmix version, cap the number of returned snippets and set an approximate response token budget.
+The MCP server simply passes the list of snippets back to the LLM as JSON, without adding extra logic or modifying the content.
 
 
 ## Flow Overview
@@ -15,20 +16,20 @@ sequenceDiagram
     participant MCP as MCP Server (JmixDocsTool)
     participant Telemetry as McpToolTelemetry + TimedExecutor
     participant SearchSvc as JmixContentSearchService
-    participant Backend as Jmix AI Backend (/api/search)
+    participant Backend as Jmix AI Backend (/api/v2/search)
     participant VS as Vector Store + Reranker
 
     U->>A: "How to configure Jmix security?"
-    A->>MCP: callTool("search-jmix-docs", queryText)
+    A->>MCP: callTool("search-jmix-docs", queryText [, jmixVersion, maxResults, tokens])
     MCP->>Telemetry: executeWithTelemetry(context)
-    Telemetry->>SearchSvc: searchForJmixDocs(queryText)
-    SearchSvc->>Backend: POST /api/search {query}
+    Telemetry->>SearchSvc: search(queryText, options)
+    SearchSvc->>Backend: POST /api/v2/search {query, jmix_version?, max_results?, tokens?}
     Backend->>VS: semantic search + rerank
-    VS-->>Backend: top-N doc chunks (JSON)
+    VS-->>Backend: relevance-ordered snippets (JSON)
     Backend-->>SearchSvc: JSON String
     SearchSvc-->>Telemetry: JSON String
     Telemetry-->>MCP: CallToolResult(text=JSON)
-    MCP-->>A: tool result (docs JSON)
+    MCP-->>A: tool result (snippets JSON)
     A-->>U: answer with citations/snippets
 
 ```
@@ -44,13 +45,25 @@ MCP contract (conceptual):
 ```json
 {
   "name": "search-jmix-docs",
-  "description": "Search Jmix documentation using semantic search with reranking",
+  "description": "Search Jmix documentation using semantic search with reranking. Returns relevance-ordered snippets with title, source URL and content.",
   "input": {
     "type": "object",
     "properties": {
       "queryText": {
         "type": "string",
         "description": "Search query for Jmix documentation"
+      },
+      "jmixVersion": {
+        "type": "string",
+        "description": "Jmix major version to search: 'v2' or 'v3'. Omit to search the current Jmix release."
+      },
+      "maxResults": {
+        "type": "integer",
+        "description": "Maximum total number of returned snippets, 1-50. Omit for the server default."
+      },
+      "tokens": {
+        "type": "integer",
+        "description": "Approximate response token budget, 1-100000; the most relevant snippets are kept. Omit to return the full result set."
       }
     },
     "required": ["queryText"]
@@ -61,15 +74,22 @@ MCP contract (conceptual):
 ## Backend API (internal)
 
 ```http
-POST /api/search
+POST /api/v2/search
 Content-Type: application/json
 
 {
-  "query": "<text>"
+  "query": "<text>",
+  "jmix_version": "v2 | v3, optional",
+  "max_results": "1-50, optional",
+  "tokens": "1-100000, optional"
 }
 ```
 
-Response: JSON with top reranked Jmix doc chunks (returned as raw String to the LLM).
+Optional fields are sent only when the corresponding tool argument is provided; the backend
+defaults the version to the current Jmix release and returns its default result set otherwise.
+
+Response: a JSON array of relevance-ordered snippets, each with `id`, `title`, `source` and
+`content` (returned as raw String to the LLM).
 
 ## Transport
 
